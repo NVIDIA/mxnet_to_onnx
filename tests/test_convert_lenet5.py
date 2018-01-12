@@ -47,7 +47,9 @@ def check_gpu_id(gpu_id):
         result = subprocess.check_output("nvidia-smi --query-gpu=gpu_bus_id --format=csv,noheader", shell=True).strip()
     except OSError as e:
         return False
-    gpu_ct = len(str(result, "ascii").split("\n"))
+    if not isinstance(result, str):
+        result = str(result.decode("ascii"))
+    gpu_ct = len(result.split("\n"))
     # count is zero-based
     return gpu_id < gpu_ct
 
