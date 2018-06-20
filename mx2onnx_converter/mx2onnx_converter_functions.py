@@ -164,7 +164,6 @@ def convert_fully_connected(node, **kwargs):
         [name], # output
         alpha = 1.0,
         beta = 1.0,
-        broadcast = True,
         transA = False,
         transB = True,
         name = name
@@ -360,7 +359,8 @@ def convert_flatten(node, **kwargs):
         "Flatten",
         [input_node],
         [name],
-        name = name
+        name = name,
+        axis = 1
     )
     return flatten_node
 

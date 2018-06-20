@@ -33,7 +33,7 @@ import numpy as np
 
 import sys
 
-from onnx import (defs, checker, helper, numpy_helper, mapping, onnx_pb2,
+from onnx import (defs, checker, helper, numpy_helper, mapping, onnx_pb,
                   ModelProto, GraphProto, NodeProto, AttributeProto, TensorProto)
 
 from onnx.helper import make_tensor, make_tensor_value_info
@@ -98,12 +98,12 @@ class MxNetToONNXConverter:
                initializer = initializer
            )
 
-           if isinstance(converted, onnx_pb2.ValueInfoProto):
+           if isinstance(converted, onnx_pb.ValueInfoProto):
                if idx < (len(mx_graph) - 1):
                    onnx_processed_inputs.append(converted)
                else:
                    onnx_processed_outputs.append(converted)
-           elif isinstance(converted, onnx_pb2.NodeProto):
+           elif isinstance(converted, onnx_pb.NodeProto):
                if idx < (len(mx_graph) - 1):
                    onnx_processed_nodes.append(converted)
                else:
@@ -117,7 +117,7 @@ class MxNetToONNXConverter:
                    )
                    if log:
                        print("Output node is: %s" % converted.name)
-           elif isinstance(converted, onnx_pb2.TensorProto):
+           elif isinstance(converted, onnx_pb.TensorProto):
                raise ValueError("Did not expect TensorProto")
                if idx < (len(mx_graph) - 1):
                    onnx_processed_inputs.append(converted)

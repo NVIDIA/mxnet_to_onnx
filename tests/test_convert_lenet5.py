@@ -40,7 +40,8 @@ from mx2onnx_converter.conversion_helpers import from_mxnet
 # MxNet importer
 # Needed for ONNX -> NNVM -> MxNet conversion
 # to validate the results of the export
-import onnx_mxnet
+#import onnx_mxnet
+from mxnet.contrib.onnx import import_model
 
 def check_gpu_id(gpu_id):
     try:
@@ -110,7 +111,7 @@ class LeNet5Test(TestCase):
 
     def __init__(self, *args, **kwargs):
         TestCase.__init__(self, *args, **kwargs)
-        self.tearDown = lambda: subprocess.call("rm -f *.gz *-symbol.json *.params *.onnx", shell=True)
+#        self.tearDown = lambda: subprocess.call("rm -f *.gz *-symbol.json *.params *.onnx", shell=True)
 
     def test_convert_and_compare_prediction(self):
         # get data iterators and set basic hyperparams
@@ -162,15 +163,15 @@ class LeNet5Test(TestCase):
         print("\nLoading ONNX file and comparing results to original MxNet output.")
     
         # ONNX load and inference step
-        onnx_sym, onnx_params = onnx_mxnet.import_model(onnx_file)
-        onnx_mod = mx.mod.Module(symbol=onnx_sym, data_names=['input_0'], context=mx.cpu(), label_names=None)
+        onnx_sym, onnx_arg_params, onnx_aux_params = import_model(onnx_file)
+        onnx_mod = mx.mod.Module(symbol=onnx_sym, data_names=['data'], context=mx.cpu(), label_names=None)
     
         # Need to rename data argument from 'data' to 'input_0' because that's how
         # the MxNet ONNX importer expects it by default
-        test_iter = mx.io.NDArrayIter(data={'input_0': mnist['test_data']}, label=None, batch_size=batch_size)
+        test_iter = mx.io.NDArrayIter(data={'data': mnist['test_data']}, label=None, batch_size=batch_size)
     
         onnx_mod.bind(data_shapes=test_iter.provide_data, label_shapes=None, for_training=False, force_rebind=True)
-        onnx_mod.set_params(arg_params=onnx_params, aux_params=None, allow_missing=True)
+        onnx_mod.set_params(arg_params=onnx_arg_params, aux_params=onnx_aux_params, allow_missing=True)
     
         onnx_pred_softmax = onnx_mod.predict(test_iter).asnumpy()
         onnx_pred_classes = np.argmax(pred_softmax, axis=1)
