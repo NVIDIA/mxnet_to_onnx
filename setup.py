@@ -35,7 +35,7 @@ match_mxnet_req = re.compile(r"mxnet>?=?=\d+.\d+\d*")
 extract_major_minor = re.compile(r"\D*(\d+.\d+)\D*")
 
 def check_mxnet_version(min_ver):
-    if int(not os.environ.get('UPDATE_MXNET_FOR_ONNX_EXPORTER', '1')):
+    if not int(os.environ.get('UPDATE_MXNET_FOR_ONNX_EXPORTER', '1')):
         print("Env var set to not upgrade MxNet for ONNX exporter. Skipping.")
         return False
     try:
