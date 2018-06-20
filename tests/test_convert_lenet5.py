@@ -52,7 +52,9 @@ def check_gpu_id(gpu_id):
         result = str(result.decode("ascii"))
     gpu_ct = len(result.split("\n"))
     # count is zero-based
-    return gpu_id < gpu_ct
+    exists = gpu_id < gpu_ct
+    print("\nChecked for GPU ID %d. Less than GPU count (%d)? %s\n" % (gpu_id, gpu_ct, exists)) 
+    return exists
 
 # MxNet LeNet-5 implementation
 def lenet5():
@@ -77,7 +79,7 @@ def lenet5():
 
 # train LeNet-5 model on MNIST data
 def train_lenet5(num_epochs, gpu_id, train_iter, val_iter, test_iter, batch_size):
-    ctx = mx.gpu(gpu_id) if gpu_id else mx.cpu()
+    ctx = mx.gpu(gpu_id) if gpu_id is not None else mx.cpu()
     print("\nUsing %s to train" % str(ctx))
     lenet_model = lenet5()
     lenet_model = mx.mod.Module(lenet_model, context=ctx)
