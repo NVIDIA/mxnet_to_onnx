@@ -1,6 +1,7 @@
 MxNet-to-ONNX exporter
 ==========================
 
+**NOTE:** This repository is deprecated, since MXNet now (since v. 1.3) has an officially integrated exporter, in part based on this repository. For the latest version of the exporter, please install the latest version of MXNet. The official exporter can now be found [here](https://github.com/apache/incubator-mxnet/tree/master/python/mxnet/contrib/onnx/mx2onnx).
 
 What is this?
 ------------------
