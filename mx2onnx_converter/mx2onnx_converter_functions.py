@@ -56,6 +56,7 @@ def looks_like_weight(name):
         return True
     return False
 
+
 @mx2onnx.register("null")
 def convert_weights_and_inputs(node, **kwargs):
     name = node["name"]
@@ -84,7 +85,69 @@ def convert_weights_and_inputs(node, **kwargs):
         tval_node = helper.make_tensor_value_info(name, kwargs["in_type"], kwargs["in_shape"])
         return tval_node
 
-@mx2onnx.register("Convolution")
+
+@mx2onnx.register("Deconvolution")
+def convert_deconvolution(node, **kwargs):
+    name = node["name"]
+    inputs = node["inputs"]
+
+    num_inputs = len(inputs)
+
+    proc_nodes = kwargs["proc_nodes"]
+    input_node = proc_nodes[inputs[0][0]].name
+    weights_node = proc_nodes[inputs[1][0]].name
+
+    if num_inputs > 2:
+        bias_node = proc_nodes[inputs[2][0]].name
+
+    attrs = node.get("attrs")
+    tuple_re = re.compile('\([0-9|,| ]+\)')
+
+    def parse_helper(attrs_name, alt_value=None):
+        if attrs is None:
+            return alt_value
+        attrs_str = attrs.get(attrs_name)
+        if attrs_str is None:
+            return alt_value
+        attrs_match = tuple_re.search(attrs_str)
+        if attrs_match is not None:
+            if attrs_match.span() == (0, len(attrs_str)):
+                dims = eval(attrs_str)
+                return dims
+            else:
+                raise AttributeError("Malformed %s dimensions: %s" % (attrs_name, str(attrs_str)))
+        return alt_value
+
+    num_filter = int(attrs["num_filter"])
+    kernel_dims = list(parse_helper("kernel"))
+    stride_dims = list(parse_helper("stride", [1, 1]))
+    pad_dims = parse_padding(attrs)
+    num_group = int(attrs.get("num_group", 1))
+
+    # Not sure why this is included, it seems to change what the graphs is doing.
+    # TODO(kellens): Ask Marek if this is requried.
+    # if len(pad_dims) < 2 * len(kernel_dims):
+    #     pad_dims = [0] * (2 * len(kernel_dims) - len(pad_dims)) + pad_dims
+
+    input_nodes = [input_node, weights_node]
+    if num_inputs > 2:
+        input_nodes.append(bias_node)
+
+    deconv_node = helper.make_node(
+        "ConvTranspose",
+        inputs=input_nodes,
+        outputs=[name],
+        kernel_shape=kernel_dims,
+        strides=stride_dims,
+        pads=pad_dims,
+        group=num_group,
+        name=name
+    )
+
+    return deconv_node
+
+
+    @mx2onnx.register("Convolution")
 def convert_convolution(node, **kwargs):
     name = node["name"]
     inputs = node["inputs"]
@@ -119,11 +182,13 @@ def convert_convolution(node, **kwargs):
     num_filter = int(attrs["num_filter"])
     kernel_dims = list(parse_helper("kernel"))
     stride_dims = list(parse_helper("stride", [1, 1]))
-    pad_dims = list(parse_helper("pad", [0, 0]))
+    pad_dims = parse_padding(attrs)
     num_group = int(attrs.get("num_group", 1))
 
-    if len(pad_dims) < 2 * len(kernel_dims):
-        pad_dims = [0] * (2 * len(kernel_dims) - len(pad_dims)) + pad_dims
+    # Not sure why this is included, it seems to change what the graphs is doing.
+    # TODO(kellens): Ask Marek if this is requried.
+    # if len(pad_dims) < 2 * len(kernel_dims):
+    #     pad_dims = [0] * (2 * len(kernel_dims) - len(pad_dims)) + pad_dims
 
     input_nodes = [input_node, weights_node]
     if num_inputs > 2:
@@ -136,11 +201,12 @@ def convert_convolution(node, **kwargs):
         kernel_shape=kernel_dims,
         strides=stride_dims, 
         pads=pad_dims, 
-        group = num_group,
-        name = name
+        group=num_group,
+        name=name,
         )
 
     return conv_node
+
 
 @mx2onnx.register("FullyConnected")
 def convert_fully_connected(node, **kwargs):
@@ -160,13 +226,13 @@ def convert_fully_connected(node, **kwargs):
 
     node = helper.make_node(
         "Gemm",
-        [input_name, weights_name, bias_name], # input (A, B, C) - C can be in place
-        [name], # output
-        alpha = 1.0,
-        beta = 1.0,
-        transA = False,
-        transB = True,
-        name = name
+        [input_name, weights_name, bias_name],  # input (A, B, C) - C can be in place
+        [name],  # output
+        alpha=1.0,
+        beta=1.0,
+        transA=False,
+        transB=True,
+        name=name
     ) 
 
     return node
@@ -178,8 +244,16 @@ def convert_batchnorm(node, **kwargs):
     inputs = node["inputs"]
 
     attrs = node["attrs"]
-    momentum = float(attrs["momentum"])
-    eps = float(attrs["eps"])
+    # Default momentum is 0.9
+    try:
+        momentum = float(attrs["momentum"])
+    except:
+        momentum = 0.9
+        # Default eps is 0.001
+    try:
+        eps = float(attrs["eps"])
+    except:
+        eps = 0.001
 
     data_idx = inputs[0][0]
     gamma_idx = inputs[1][0]
@@ -198,18 +272,18 @@ def convert_batchnorm(node, **kwargs):
     bn_node = helper.make_node(
         "BatchNormalization",
         [data_node,
-         gamma_node, # scale
+         gamma_node,  # scale
          beta_node,  # bias
          mov_mean_node,
          mov_var_node
         ],
         [name],
-        name = name,
-        epsilon = eps,
-        momentum = momentum, 
-        is_test = 1,
-        spatial = 1,
-        consumed_inputs = (0, 0, 0, 1, 1)
+        name=name,
+        epsilon=eps,
+        momentum=momentum,
+        is_test=1,
+        spatial=1,
+        consumed_inputs=(0, 0, 0, 1, 1)
     )
 
     return bn_node
@@ -231,8 +305,11 @@ def convert_activation(node, **kwargs):
     # is consistent for other activations, this can be changed to
     # mxnet_name.title()
     act_types = {
-        "tanh" : "Tanh",
-        "relu" : "Relu"
+        "tanh": "Tanh",
+        "relu": "Relu",
+        "sigmoid": "Sigmoid",
+        "softrelu": "Softplus",
+        "softsign": "Softsign"
     }
 
     act_name = act_types.get(act_type)
@@ -241,7 +318,7 @@ def convert_activation(node, **kwargs):
             act_name,
             [input_node],
             [name],
-            name = name
+            name=name
         )
     else: 
         raise AttributeError(
@@ -251,40 +328,78 @@ def convert_activation(node, **kwargs):
     return node
  
 
+def parse_padding(attrs):
+    tuple_re = re.compile('\([0-9|,| ]+\)')
+
+    def parse_helper(attrs_name, alt_value=None):
+        if attrs is None:
+            return alt_value
+        attrs_str = attrs.get(attrs_name)
+        if attrs_str is None:
+            return alt_value
+        attrs_match = tuple_re.search(attrs_str)
+        if attrs_match is not None:
+            if attrs_match.span() == (0, len(attrs_str)):
+                dims = eval(attrs_str)
+                return dims
+            else:
+                raise AttributeError("Malformed %s dimensions: %s" % (attrs_name, str(attrs_str)))
+        return alt_value
+
+    symetric_pads = list(parse_helper("pad", [0, 0]))
+    result = []
+
+    # Each padding in MXNet is assumed to be symetric in dim1, dim2 ...
+    # In ONNX we need to have a start_dim1, start_dim2, ..., end_dim1, end_dim2
+    for pad in symetric_pads:
+        result.append(pad)
+    for pad in symetric_pads:
+        result.append(pad)
+    return result
+
+
 @mx2onnx.register("Pooling")
 def convert_pooling(node, **kwargs):
     proc_nodes = kwargs["proc_nodes"]
     attrs = node["attrs"]
     kernel = eval(attrs["kernel"])
     pool_type = attrs["pool_type"]
-    stride = eval(attrs["stride"]) if attrs.get("stride") else None
+
+    # Default stride in MXNet for pooling is (1,1)
+    stride = eval(attrs["stride"]) if attrs.get("stride") else (1, 1)
+
+    # Global pooling is set explicitly with an attr on the op.
+    global_pool = eval(attrs["global"]) if attrs.get("global") else None
+
     node_inputs = node["inputs"]    
     input_node_idx = node_inputs[0][0]
     input_node = proc_nodes[input_node_idx]
     name = node["name"]
 
+    pad_dims = parse_padding(attrs)
+
     pool_types = {"max": "MaxPool", "avg": "AveragePool"}
     global_pool_types = {"max": "GlobalMaxPool", "avg": "GlobalAveragePool"}
 
-    if stride:
+    if global_pool:
+        node = helper.make_node(
+            global_pool_types[pool_type],
+            [input_node.output[0]],
+            [name],
+            name=name,
+            pads=pad_dims
+        )
+    else:
         node = helper.make_node(
             pool_types[pool_type],
-            [input_node.output[0]], # input
+            [input_node.output[0]],  # input
             [name],
-        #        dilations = [0, 0],
-            kernel_shape = kernel,
-            pads = [0, 0],
-            strides = stride,
-            name = name
-        )   
-    else:
-         node = helper.make_node(
-            global_pool_types[pool_type],
-            [input_node.output[0]], # input
-            [name],
-            name = name
-        )   
- 
+            # dilations = [0, 0],
+            kernel_shape=kernel,
+            pads=pad_dims,
+            strides=stride,
+            name=name
+        )
     return node
 
 
@@ -308,12 +423,34 @@ def convert_softmax_output(node, **kwargs):
         "Softmax",
         [input1.output[0]],
         [name],
-        axis = 1,
-        name = name
+        axis=1,
+        name=name
     )
 
     return softmax_node
 
+
+@mx2onnx.register("Crop")
+def convert_concat(node, **kwargs):
+    name = node["name"]
+    inputs = node["inputs"]
+    proc_nodes = kwargs["proc_nodes"]
+    input_names = [proc_nodes[i[0]].name for i in inputs]
+    attrs = node["attrs"]
+    border = [0, 0, 0, 0]
+    offset = list(eval(attrs['offset']))
+    if len(inputs) == 2:
+        border = inputs[1]
+    axis = int(node.get("attrs", {}).get("axis", 1))
+    concat_node = helper.make_node(
+        "Crop",
+        input_names,
+        [name],
+        border=border,
+        scale=offset,
+        name=name
+    )
+    return concat_node
 
 @mx2onnx.register("Concat")
 def convert_concat(node, **kwargs):
