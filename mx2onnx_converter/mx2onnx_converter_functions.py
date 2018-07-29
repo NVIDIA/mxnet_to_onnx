@@ -147,7 +147,7 @@ def convert_deconvolution(node, **kwargs):
     return deconv_node
 
 
-    @mx2onnx.register("Convolution")
+@mx2onnx.register("Convolution")
 def convert_convolution(node, **kwargs):
     name = node["name"]
     inputs = node["inputs"]
