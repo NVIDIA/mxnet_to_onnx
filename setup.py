@@ -77,6 +77,7 @@ if __name__ == '__main__':
         zip_safe = False,
         test_suite='nose.collector',
         tests_require=['nose'],
+        version = '0.1'
     )
    
     call("rm -rf dist".split())
